@@ -1031,7 +1031,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     final mm = date.month.toString().padLeft(2, '0');
     final hh = date.hour.toString().padLeft(2, '0');
     final min = date.minute.toString().padLeft(2, '0');
-    return '$dd/$mm ${hh}:$min';
+    return '$dd/$mm $hh:$min';
   }
 
   @override
