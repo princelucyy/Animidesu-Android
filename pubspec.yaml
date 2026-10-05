@@ -1,8 +1,7 @@
 name: animidesu
 description: Animidesu anime application
 publish_to: "none"
-
-version: 1.1.0+2
+version: 1.2.0+3
 
 environment:
   sdk: ">=3.9.0 <4.0.0"
@@ -13,11 +12,6 @@ dependencies:
     sdk: flutter
   http: ^1.6.0
   shared_preferences: ^2.5.5
-
-dev_dependencies:
-  flutter_test:
-    sdk: flutter
-  flutter_lints: ^6.0.0
 
 flutter:
   uses-material-design: true

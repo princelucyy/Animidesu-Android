@@ -8,25 +8,6 @@ void main() {
   runApp(const AnimidesuApp());
 }
 
-class AnimidesuApp extends StatelessWidget {
-  const AnimidesuApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Animidesu',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        brightness: Brightness.dark,
-        useMaterial3: true,
-        colorSchemeSeed: Colors.deepPurple,
-        scaffoldBackgroundColor: const Color(0xFF0B0B10),
-      ),
-      home: const MainShell(),
-    );
-  }
-}
-
 class Anime {
   const Anime({
     required this.id,
@@ -38,8 +19,8 @@ class Anime {
     this.status = '',
     this.score,
     this.genres = const [],
-    this.nextAiringAt,
     this.nextEpisode,
+    this.airingAt,
   });
 
   final int id;
@@ -51,17 +32,17 @@ class Anime {
   final String status;
   final int? score;
   final List<String> genres;
-  final int? nextAiringAt;
   final int? nextEpisode;
+  final int? airingAt;
 
   factory Anime.fromJson(Map<String, dynamic> json) {
-    final title = (json['title'] as Map<String, dynamic>?) ?? const {};
-    final cover = (json['coverImage'] as Map<String, dynamic>?) ?? const {};
-    final next =
-        (json['nextAiringEpisode'] as Map<String, dynamic>?) ?? const {};
+    final title = json['title'] as Map<String, dynamic>? ?? const {};
+    final cover = json['coverImage'] as Map<String, dynamic>? ?? const {};
+    final airing =
+        json['nextAiringEpisode'] as Map<String, dynamic>? ?? const {};
 
-    String clean(String value) {
-      return value
+    String clean(String text) {
+      return text
           .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n')
           .replaceAll(RegExp(r'<[^>]*>'), '')
           .replaceAll('&amp;', '&')
@@ -71,8 +52,7 @@ class Anime {
 
     return Anime(
       id: json['id'] as int,
-      title: (title['english'] ?? title['romaji'] ?? title['native'] ??
-              'Tanpa Judul')
+      title: (title['english'] ?? title['romaji'] ?? title['native'] ?? 'Tanpa Judul')
           .toString(),
       cover: (cover['extraLarge'] ?? cover['large'] ?? cover['medium'] ?? '')
           .toString(),
@@ -84,10 +64,38 @@ class Anime {
       genres: (json['genres'] as List<dynamic>? ?? const [])
           .map((e) => e.toString())
           .toList(),
-      nextAiringAt: next['airingAt'] as int?,
-      nextEpisode: next['episode'] as int?,
+      nextEpisode: airing['episode'] as int?,
+      airingAt: airing['airingAt'] as int?,
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'title': title,
+      'cover': cover,
+      'banner': banner,
+      'description': description,
+      'episodes': episodes,
+      'status': status,
+      'score': score,
+      'genres': genres,
+      'nextEpisode': nextEpisode,
+      'airingAt': airingAt,
+    };
+  }
+}
+
+class HomeData {
+  const HomeData({
+    required this.trending,
+    required this.airing,
+    required this.popular,
+  });
+
+  final List<Anime> trending;
+  final List<Anime> airing;
+  final List<Anime> popular;
 }
 
 class AniListApi {
@@ -96,7 +104,7 @@ class AniListApi {
   final http.Client _client;
   static final Uri endpoint = Uri.parse('https://graphql.anilist.co');
 
-  Future<Map<String, dynamic>> _query(
+  Future<dynamic> post(
     String query, [
     Map<String, dynamic> variables = const {},
   ]) async {
@@ -106,85 +114,78 @@ class AniListApi {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
       },
-      body: jsonEncode({'query': query, 'variables': variables}),
+      body: jsonEncode({
+        'query': query,
+        'variables': variables,
+      }),
     );
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('AniList HTTP ${response.statusCode}');
     }
 
-    final data = jsonDecode(response.body) as Map<String, dynamic>;
-    if (data['errors'] != null) {
-      throw Exception('AniList mengembalikan error.');
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+
+    if (json['errors'] != null) {
+      throw Exception('AniList API error');
     }
-    return data;
+
+    return json['data'];
   }
 
-  Future<List<Anime>> home() async {
-    const query = r'''
+  static const String fields = '''
+    id
+    title { romaji english native }
+    coverImage { large extraLarge medium }
+    bannerImage
+    description(asHtml: false)
+    episodes
+    status
+    genres
+    averageScore
+    nextAiringEpisode { episode airingAt }
+  ''';
+
+  Future<HomeData> home() async {
+    final query = '''
       query Home {
         trending: Page(page: 1, perPage: 10) {
           media(sort: TRENDING_DESC, type: ANIME) {
-            id
-            title { romaji english native }
-            coverImage { large extraLarge medium }
-            bannerImage
-            description(asHtml: false)
-            episodes
-            status
-            genres
-            averageScore
-            nextAiringEpisode { episode airingAt }
+            $fields
           }
         }
-        popular: Page(page: 1, perPage: 10) {
-          media(sort: POPULARITY_DESC, type: ANIME) {
-            id
-            title { romaji english native }
-            coverImage { large extraLarge medium }
-            bannerImage
-            description(asHtml: false)
-            episodes
-            status
-            genres
-            averageScore
-            nextAiringEpisode { episode airingAt }
-          }
-        }
+
         airing: Page(page: 1, perPage: 10) {
           media(sort: UPDATED_AT_DESC, status: RELEASING, type: ANIME) {
-            id
-            title { romaji english native }
-            coverImage { large extraLarge medium }
-            bannerImage
-            description(asHtml: false)
-            episodes
-            status
-            genres
-            averageScore
-            nextAiringEpisode { episode airingAt }
+            $fields
+          }
+        }
+
+        popular: Page(page: 1, perPage: 10) {
+          media(sort: POPULARITY_DESC, type: ANIME) {
+            $fields
           }
         }
       }
     ''';
 
-    final data = await _query(query);
-    final root = data['data'] as Map<String, dynamic>;
-    final seen = <int>{};
-    final result = <Anime>[];
+    final data = await post(query) as Map<String, dynamic>;
 
-    for (final key in const ['trending', 'airing', 'popular']) {
-      final page = root[key] as Map<String, dynamic>;
-      for (final raw in page['media'] as List<dynamic>) {
-        final anime = Anime.fromJson(raw as Map<String, dynamic>);
-        if (seen.add(anime.id)) result.add(anime);
-      }
+    List<Anime> parse(String name) {
+      final page = data[name] as Map<String, dynamic>;
+      return (page['media'] as List<dynamic>)
+          .map((e) => Anime.fromJson(e as Map<String, dynamic>))
+          .toList();
     }
 
-    return result;
+    return HomeData(
+      trending: parse('trending'),
+      airing: parse('airing'),
+      popular: parse('popular'),
+    );
   }
 
-  Future<List<Anime>> search(String text) async {
+  Future<List<Anime>> search(String keyword) async {
     const query = r'''
       query Search($search: String) {
         Page(page: 1, perPage: 30) {
@@ -204,16 +205,17 @@ class AniListApi {
       }
     ''';
 
-    final data = await _query(query, {'search': text});
-    final page =
-        (data['data'] as Map<String, dynamic>)['Page'] as Map<String, dynamic>;
+    final data =
+        await post(query, {'search': keyword}) as Map<String, dynamic>;
+
+    final page = data['Page'] as Map<String, dynamic>;
 
     return (page['media'] as List<dynamic>)
         .map((e) => Anime.fromJson(e as Map<String, dynamic>))
         .toList();
   }
 
-  Future<Anime> detail(int id) async {
+  Future<Anime> details(int id) async {
     const query = r'''
       query Detail($id: Int) {
         Media(id: $id, type: ANIME) {
@@ -231,61 +233,95 @@ class AniListApi {
       }
     ''';
 
-    final data = await _query(query, {'id': id});
-    final media =
-        (data['data'] as Map<String, dynamic>)['Media'] as Map<String, dynamic>;
+    final data = await post(query, {'id': id}) as Map<String, dynamic>;
 
-    return Anime.fromJson(media);
+    return Anime.fromJson(
+      data['Media'] as Map<String, dynamic>,
+    );
   }
 }
 
 class LocalStore {
-  static const favoritesKey = 'favorites_v11';
-  static const historyKey = 'history_v11';
+  static const favoriteKey = 'animidesu_favorites';
+  static const historyKey = 'animidesu_history';
 
-  Future<SharedPreferences> _prefs() => SharedPreferences.getInstance();
+  Future<SharedPreferences> get prefs =>
+      SharedPreferences.getInstance();
 
-  Future<Set<int>> favorites() async {
-    final prefs = await _prefs();
-    return (prefs.getStringList(favoritesKey) ?? const [])
-        .map(int.tryParse)
-        .whereType<int>()
-        .toSet();
+  Future<List<Anime>> favorites() async {
+    final p = await prefs;
+    final raw = p.getStringList(favoriteKey) ?? [];
+
+    return raw
+        .map((e) => Anime.fromJson(jsonDecode(e) as Map<String, dynamic>))
+        .toList();
   }
 
-  Future<void> toggleFavorite(int id) async {
-    final prefs = await _prefs();
-    final ids = await favorites();
-    if (ids.contains(id)) {
-      ids.remove(id);
+  Future<void> toggleFavorite(Anime anime) async {
+    final p = await prefs;
+    final items = await favorites();
+
+    final index = items.indexWhere((e) => e.id == anime.id);
+
+    if (index >= 0) {
+      items.removeAt(index);
     } else {
-      ids.add(id);
+      items.insert(0, anime);
     }
-    await prefs.setStringList(
-      favoritesKey,
-      ids.map((e) => e.toString()).toList(),
+
+    await p.setStringList(
+      favoriteKey,
+      items.map((e) => jsonEncode(e.toJson())).toList(),
     );
   }
 
-  Future<Map<int, double>> history() async {
-    final prefs = await _prefs();
-    final raw = prefs.getString(historyKey);
-    if (raw == null || raw.isEmpty) return {};
-    final decoded = jsonDecode(raw) as Map<String, dynamic>;
-    return decoded.map(
-      (key, value) => MapEntry(int.parse(key), (value as num).toDouble()),
-    );
+  Future<bool> isFavorite(int id) async {
+    final items = await favorites();
+    return items.any((e) => e.id == id);
   }
 
-  Future<void> saveProgress(int animeId, double progress) async {
-    final prefs = await _prefs();
+  Future<List<Anime>> history() async {
+    final p = await prefs;
+    final raw = p.getStringList(historyKey) ?? [];
+
+    return raw
+        .map((e) => Anime.fromJson(jsonDecode(e) as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<void> addHistory(Anime anime) async {
+    final p = await prefs;
     final items = await history();
-    items[animeId] = progress.clamp(0.0, 1.0);
-    await prefs.setString(
+
+    items.removeWhere((e) => e.id == anime.id);
+    items.insert(0, anime);
+
+    if (items.length > 30) {
+      items.removeRange(30, items.length);
+    }
+
+    await p.setStringList(
       historyKey,
-      jsonEncode(
-        items.map((key, value) => MapEntry(key.toString(), value)),
+      items.map((e) => jsonEncode(e.toJson())).toList(),
+    );
+  }
+}
+
+class AnimidesuApp extends StatelessWidget {
+  const AnimidesuApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Animidesu',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        brightness: Brightness.dark,
+        useMaterial3: true,
+        colorSchemeSeed: const Color(0xFF8B5CF6),
+        scaffoldBackgroundColor: const Color(0xFF08080C),
       ),
+      home: const MainShell(),
     );
   }
 }
@@ -300,6 +336,7 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   final api = AniListApi();
   final store = LocalStore();
+
   int index = 0;
 
   @override
@@ -312,10 +349,15 @@ class _MainShellState extends State<MainShell> {
     ];
 
     return Scaffold(
-      body: IndexedStack(index: index, children: pages),
+      body: IndexedStack(
+        index: index,
+        children: pages,
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: index,
-        onDestinationSelected: (value) => setState(() => index = value),
+        onDestinationSelected: (value) {
+          setState(() => index = value);
+        },
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.home_outlined),
@@ -343,6 +385,468 @@ class _MainShellState extends State<MainShell> {
   }
 }
 
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({
+    super.key,
+    required this.api,
+    required this.store,
+  });
+
+  final AniListApi api;
+  final LocalStore store;
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  late Future<HomeData> future = widget.api.home();
+
+  final search = TextEditingController();
+
+  List<Anime> results = [];
+  Set<int> favorites = {};
+  bool searching = false;
+
+  @override
+  void initState() {
+    super.initState();
+    loadFavorites();
+  }
+
+  @override
+  void dispose() {
+    search.dispose();
+    super.dispose();
+  }
+
+  Future<void> loadFavorites() async {
+    final data = await widget.store.favorites();
+
+    if (mounted) {
+      setState(() {
+        favorites = data.map((e) => e.id).toSet();
+      });
+    }
+  }
+
+  Future<void> favorite(Anime anime) async {
+    await widget.store.toggleFavorite(anime);
+    await loadFavorites();
+  }
+
+  Future<void> doSearch() async {
+    final keyword = search.text.trim();
+
+    if (keyword.isEmpty) return;
+
+    setState(() {
+      searching = true;
+    });
+
+    try {
+      final data = await widget.api.search(keyword);
+
+      if (mounted) {
+        setState(() {
+          results = data;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Pencarian gagal: $e'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          searching = false;
+        });
+      }
+    }
+  }
+
+  void openAnime(Anime anime) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => DetailScreen(
+          api: widget.api,
+          store: widget.store,
+          anime: anime,
+        ),
+      ),
+    );
+  }
+
+  Future<void> refresh() async {
+    final next = widget.api.home();
+    setState(() {
+      future = next;
+    });
+    await next;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: RefreshIndicator(
+        onRefresh: refresh,
+        child: CustomScrollView(
+          slivers: [
+            const SliverAppBar(
+              pinned: true,
+              floating: true,
+              title: Text(
+                'Animidesu',
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              actions: [
+                Icon(Icons.notifications_none),
+                SizedBox(width: 12),
+              ],
+            ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                child: SearchBar(
+                  controller: search,
+                  hintText: 'Cari anime, donghua, judul...',
+                  leading: const Icon(Icons.search),
+                  trailing: [
+                    IconButton(
+                      onPressed: searching ? null : doSearch,
+                      icon: searching
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                              ),
+                            )
+                          : const Icon(Icons.arrow_forward),
+                    ),
+                  ],
+                  onSubmitted: (_) => doSearch(),
+                ),
+              ),
+            ),
+            if (results.isNotEmpty) ...[
+              const SliverToBoxAdapter(
+                child: SectionTitle(title: '🔎 Hasil Pencarian'),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                sliver: AnimeGrid(
+                  items: results,
+                  favorites: favorites,
+                  onTap: openAnime,
+                  onFavorite: favorite,
+                ),
+              ),
+            ],
+            SliverToBoxAdapter(
+              child: FutureBuilder<HomeData>(
+                future: future,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState ==
+                      ConnectionState.waiting) {
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 80),
+                      child: Center(
+                        child: CircularProgressIndicator(),
+                      ),
+                    );
+                  }
+
+                  if (snapshot.hasError) {
+                    return Padding(
+                      padding: const EdgeInsets.all(18),
+                      child: Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(18),
+                          child: Column(
+                            crossAxisAlignment:
+                                CrossAxisAlignment.start,
+                            children: [
+                              const Icon(
+                                Icons.wifi_off,
+                                size: 42,
+                              ),
+                              const SizedBox(height: 10),
+                              const Text(
+                                'Katalog belum dapat dimuat.',
+                                style: TextStyle(
+                                  fontSize: 19,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text('${snapshot.error}'),
+                              const SizedBox(height: 12),
+                              FilledButton.icon(
+                                onPressed: refresh,
+                                icon: const Icon(Icons.refresh),
+                                label: const Text('Coba Lagi'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+
+                  final data = snapshot.data;
+
+                  if (data == null) {
+                    return const SizedBox.shrink();
+                  }
+
+                  return Column(
+                    children: [
+                      if (data.trending.isNotEmpty)
+                        HeroBanner(
+                          anime: data.trending.first,
+                          onTap: () => openAnime(data.trending.first),
+                        ),
+                      AnimeSection(
+                        title: '🔥 Trending',
+                        items: data.trending,
+                        favorites: favorites,
+                        onTap: openAnime,
+                        onFavorite: favorite,
+                      ),
+                      AnimeSection(
+                        title: '📺 Sedang Tayang',
+                        items: data.airing,
+                        favorites: favorites,
+                        onTap: openAnime,
+                        onFavorite: favorite,
+                      ),
+                      AnimeSection(
+                        title: '⭐ Populer',
+                        items: data.popular,
+                        favorites: favorites,
+                        onTap: openAnime,
+                        onFavorite: favorite,
+                      ),
+                      const SizedBox(height: 100),
+                    ],
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class SectionTitle extends StatelessWidget {
+  const SectionTitle({
+    super.key,
+    required this.title,
+  });
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 15, 16, 10),
+      child: Text(
+        title,
+        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w900,
+            ),
+      ),
+    );
+  }
+}
+
+class AnimeSection extends StatelessWidget {
+  const AnimeSection({
+    super.key,
+    required this.title,
+required this.items,
+    required this.favorites,
+    required this.onTap,
+    required this.onFavorite,
+  });
+
+  final String title;
+  final List<Anime> items;
+  final Set<int> favorites;
+  final void Function(Anime) onTap;
+  final Future<void> Function(Anime) onFavorite;
+
+  @override
+  Widget build(BuildContext context) {
+    if (items.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SectionTitle(title: title),
+        SizedBox(
+          height: 300,
+          child: ListView.separated(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            scrollDirection: Axis.horizontal,
+            itemCount: items.length,
+            separatorBuilder: (context, index) =>
+                const SizedBox(width: 12),
+            itemBuilder: (context, index) {
+              final anime = items[index];
+
+              return AnimeCard(
+                anime: anime,
+                favorite: favorites.contains(anime.id),
+                onFavorite: () => onFavorite(anime),
+                onTap: () => onTap(anime),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class AnimeGrid extends StatelessWidget {
+  const AnimeGrid({
+    super.key,
+    required this.items,
+    required this.favorites,
+    required this.onTap,
+    required this.onFavorite,
+  });
+
+  final List<Anime> items;
+  final Set<int> favorites;
+  final void Function(Anime) onTap;
+  final Future<void> Function(Anime) onFavorite;
+
+  @override
+  Widget build(BuildContext context) {
+    return SliverGrid(
+      delegate: SliverChildBuilderDelegate(
+        (context, index) {
+          final anime = items[index];
+
+          return AnimeCard(
+            anime: anime,
+            favorite: favorites.contains(anime.id),
+            onFavorite: () => onFavorite(anime),
+            onTap: () => onTap(anime),
+          );
+        },
+        childCount: items.length,
+      ),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        crossAxisSpacing: 12,
+        mainAxisSpacing: 16,
+        childAspectRatio: .49,
+      ),
+    );
+  }
+}
+
+class HeroBanner extends StatelessWidget {
+  const HeroBanner({
+    super.key,
+    required this.anime,
+    required this.onTap,
+  });
+
+  final Anime anime;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final image =
+        anime.banner.isEmpty ? anime.cover : anime.banner;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 2, 16, 8),
+      child: AspectRatio(
+        aspectRatio: 1.7,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(22),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Image.network(
+                image,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return const ColoredBox(
+                    color: Color(0xFF1D1D28),
+                  );
+                },
+              ),
+              const DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.transparent,
+                      Color(0xF0000000),
+                    ],
+                  ),
+                ),
+              ),
+              Positioned(
+                left: 18,
+                right: 18,
+                bottom: 16,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'ANIME PILIHAN',
+                      style: TextStyle(
+                        fontSize: 11,
+                        letterSpacing: 1.5,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      anime.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    FilledButton.icon(
+                      onPressed: onTap,
+                      icon: const Icon(Icons.info_outline),
+                      label: const Text('Lihat Detail'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class AnimeCard extends StatelessWidget {
   const AnimeCard({
     super.key,
@@ -360,54 +864,64 @@ class AnimeCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 145,
+      width: 148,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(17),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            AspectRatio(
-              aspectRatio: .68,
+            Expanded(
               child: Stack(
                 fit: StackFit.expand,
                 children: [
                   ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(17),
                     child: Image.network(
                       anime.cover,
                       fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
+                      errorBuilder:
+                          (context, error, stackTrace) {
                         return const ColoredBox(
-                          color: Color(0xFF22222A),
-                          child: Center(child: Icon(Icons.broken_image)),
+                          color: Color(0xFF20202A),
+                          child: Center(
+                            child: Icon(
+                              Icons.broken_image_outlined,
+                            ),
+                          ),
                         );
                       },
                     ),
                   ),
-                  Positioned(
-                    right: 6,
-                    top: 6,
-                    child: Material(
-                      color: Colors.black54,
-                      shape: const CircleBorder(),
-                      child: IconButton(
-                        onPressed: onFavorite,
-                        icon: Icon(
-                          favorite ? Icons.favorite : Icons.favorite_border,
-                          size: 18,
+                  if (onFavorite != null)
+                    Positioned(
+                      right: 6,
+                      top: 6,
+                      child: Material(
+                        color: Colors.black54,
+                        shape: const CircleBorder(),
+                        child: IconButton(
+                          visualDensity:
+                              VisualDensity.compact,
+                          onPressed: onFavorite,
+                          icon: Icon(
+                            favorite
+                                ? Icons.favorite
+                                : Icons.favorite_border,
+                            size: 18,
+                          ),
                         ),
                       ),
                     ),
-                  ),
                   if (anime.score != null)
                     Positioned(
-                      left: 6,
-                      bottom: 6,
+                      left: 7,
+                      bottom: 7,
                       child: DecoratedBox(
                         decoration: BoxDecoration(
                           color: Colors.black87,
-                          borderRadius: BorderRadius.circular(7),
+                          borderRadius:
+                              BorderRadius.circular(7),
                         ),
                         child: Padding(
                           padding: const EdgeInsets.symmetric(
@@ -415,7 +929,7 @@ class AnimeCard extends StatelessWidget {
                             vertical: 4,
                           ),
                           child: Text(
-                            '${anime.score}',
+                            '⭐ ${anime.score}',
                             style: const TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.bold,
@@ -427,278 +941,21 @@ class AnimeCard extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 7),
             Text(
               anime.title,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.bold),
+              style: const TextStyle(
+                fontWeight: FontWeight.w800,
+              ),
             ),
-            const SizedBox(height: 2),
+            const SizedBox(height: 3),
             Text(
-              '${anime.episodes ?? '?'} eps • ${anime.status.isEmpty ? '-' : anime.status}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+              '${anime.episodes ?? '?'} eps',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class HomeScreen extends StatefulWidget {
-  const HomeScreen({
-    super.key,
-    required this.api,
-    required this.store,
-  });
-
-  final AniListApi api;
-  final LocalStore store;
-
-  @override
-  State<HomeScreen> createState() => _HomeScreenState();
-}
-
-class _HomeScreenState extends State<HomeScreen> {
-  late Future<List<Anime>> future = widget.api.home();
-  Set<int> favorites = {};
-  final searchController = TextEditingController();
-  List<Anime> results = [];
-  bool searching = false;
-
-  @override
-  void initState() {
-    super.initState();
-    loadFavorites();
-  }
-
-  @override
-  void dispose() {
-    searchController.dispose();
-    super.dispose();
-  }
-
-  Future<void> loadFavorites() async {
-    favorites = await widget.store.favorites();
-    if (mounted) setState(() {});
-  }
-
-  Future<void> favorite(Anime anime) async {
-    await widget.store.toggleFavorite(anime.id);
-    await loadFavorites();
-  }
-
-  Future<void> submitSearch() async {
-    final text = searchController.text.trim();
-    if (text.isEmpty) return;
-    setState(() => searching = true);
-    try {
-      final value = await widget.api.search(text);
-      if (mounted) setState(() => results = value);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Pencarian gagal: $e')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => searching = false);
-    }
-  }
-
-  void openDetails(Anime anime) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => DetailScreen(
-          api: widget.api,
-          store: widget.store,
-          anime: anime,
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: RefreshIndicator(
-        onRefresh: () async {
-          final next = widget.api.home();
-          setState(() => future = next);
-          await next;
-        },
-        child: CustomScrollView(
-          slivers: [
-            SliverAppBar(
-              pinned: true,
-              floating: true,
-              title: const Text(
-                'Animidesu',
-                style: TextStyle(fontWeight: FontWeight.w900),
-              ),
-              actions: [
-                IconButton(
-                  onPressed: () {},
-                  icon: const Icon(Icons.notifications_none),
-                ),
-              ],
-            ),
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-                child: SearchBar(
-                  controller: searchController,
-                  hintText: 'Cari anime...',
-                  leading: const Icon(Icons.search),
-                  trailing: [
-                    IconButton(
-                      onPressed: searching ? null : submitSearch,
-                      icon: searching
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.arrow_forward),
-                    ),
-                  ],
-                  onSubmitted: (_) => submitSearch(),
-                ),
-              ),
-            ),
-            if (results.isNotEmpty)
-              const SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(16, 8, 16, 10),
-                  child: Text(
-                    'Hasil pencarian',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-              ),
-            if (results.isNotEmpty) _animeGrid(results),
-            SliverToBoxAdapter(
-              child: FutureBuilder<List<Anime>>(
-                future: future,
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Padding(
-                      padding: EdgeInsets.all(36),
-                      child: Center(child: CircularProgressIndicator()),
-                    );
-                  }
-                  if (snapshot.hasError) {
-                    return Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Text(
-                            'Gagal memuat katalog. Cek koneksi internet lalu tarik layar untuk mencoba lagi.\n\n${snapshot.error}',
-                          ),
-                        ),
-                      ),
-                    );
-                  }
-
-                  final list = snapshot.data ?? const <Anime>[];
-                  return Column(
-                    children: [
-                      _horizontalSection(
-                        context,
-                        '🔥 Trending',
-                        list.take(10).toList(),
-                      ),
-                      _horizontalSection(
-                        context,
-                        '📺 Sedang Tayang',
-                        list.skip(10).take(10).toList(),
-                      ),
-                      _horizontalSection(
-                        context,
-                        '⭐ Populer',
-                        list.skip(20).take(10).toList(),
-                      ),
-                      const SizedBox(height: 100),
-                    ],
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _horizontalSection(
-    BuildContext context,
-    String title,
-    List<Anime> items,
-  ) {
-    if (items.isEmpty) return const SizedBox.shrink();
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-          child: Text(
-            title,
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
-          ),
-        ),
-        SizedBox(
-          height: 300,
-          child: ListView.separated(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            scrollDirection: Axis.horizontal,
-            itemCount: items.length,
-            separatorBuilder: (context, index) => const SizedBox(width: 12),
-            itemBuilder: (context, index) {
-              final anime = items[index];
-              return AnimeCard(
-                anime: anime,
-                onTap: () => openDetails(anime),
-                favorite: favorites.contains(anime.id),
-                onFavorite: () => favorite(anime),
-              );
-            },
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _animeGrid(List<Anime> items) {
-    return SliverPadding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-      sliver: SliverGrid(
-        delegate: SliverChildBuilderDelegate(
-          (context, index) {
-            final anime = items[index];
-            return AnimeCard(
-              anime: anime,
-              onTap: () => openDetails(anime),
-              favorite: favorites.contains(anime.id),
-              onFavorite: () => favorite(anime),
-            );
-          },
-          childCount: items.length,
-        ),
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 2,
-          mainAxisSpacing: 16,
-          crossAxisSpacing: 12,
-          childAspectRatio: .48,
         ),
       ),
     );
@@ -733,37 +990,60 @@ class _DetailScreenState extends State<DetailScreen> {
   }
 
   Future<void> load() async {
-    favorite = (await widget.store.favorites()).contains(anime.id);
+    favorite = await widget.store.isFavorite(anime.id);
+
     try {
-      anime = await widget.api.detail(anime.id);
-    } catch (_) {
-      // Keep the card data if the detail request fails.
+      anime = await widget.api.details(anime.id);
+    } catch (_) {}
+
+    if (mounted) {
+      setState(() {});
     }
-    if (mounted) setState(() {});
   }
 
   Future<void> toggleFavorite() async {
-    await widget.store.toggleFavorite(anime.id);
+    await widget.store.toggleFavorite(anime);
     favorite = !favorite;
-    if (mounted) setState(() {});
+
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<void> startWatching() async {
+    await widget.store.addHistory(anime);
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Episode $episode ditambahkan ke histori.',
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final maxEpisode = anime.episodes ?? 12;
-    final selectedEpisode = episode.clamp(1, maxEpisode);
+    final count = anime.episodes ?? 12;
+    final selected = episode.clamp(1, count);
+    final image =
+        anime.banner.isEmpty ? anime.cover : anime.banner;
 
     return Scaffold(
       body: CustomScrollView(
         slivers: [
           SliverAppBar(
-            expandedHeight: 250,
+            expandedHeight: 290,
             pinned: true,
             actions: [
               IconButton(
                 onPressed: toggleFavorite,
                 icon: Icon(
-                  favorite ? Icons.favorite : Icons.favorite_border,
+                  favorite
+                      ? Icons.favorite
+                      : Icons.favorite_border,
                 ),
               ),
             ],
@@ -777,17 +1057,24 @@ class _DetailScreenState extends State<DetailScreen> {
                 fit: StackFit.expand,
                 children: [
                   Image.network(
-                    anime.banner.isEmpty ? anime.cover : anime.banner,
+                    image,
                     fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) =>
-                        const ColoredBox(color: Color(0xFF181820)),
+                    errorBuilder:
+                        (context, error, stackTrace) {
+                      return const ColoredBox(
+                        color: Color(0xFF171720),
+                      );
+                    },
                   ),
                   const DecoratedBox(
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
-                        colors: [Colors.transparent, Color(0xFF0B0B10)],
+                        colors: [
+                          Colors.transparent,
+                          Color(0xFF08080C),
+                        ],
                       ),
                     ),
                   ),
@@ -797,9 +1084,15 @@ class _DetailScreenState extends State<DetailScreen> {
           ),
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 18, 16, 32),
+              padding: const EdgeInsets.fromLTRB(
+                16,
+                18,
+                16,
+                36,
+              ),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment:
+                    CrossAxisAlignment.start,
                 children: [
                   Wrap(
                     spacing: 8,
@@ -808,8 +1101,14 @@ class _DetailScreenState extends State<DetailScreen> {
                       if (anime.status.isNotEmpty)
                         Chip(label: Text(anime.status)),
                       if (anime.score != null)
-                        Chip(label: Text('Score ${anime.score}')),
-                      Chip(label: Text('${anime.episodes ?? '?'} episode')),
+                        Chip(
+                          label:
+                              Text('⭐ ${anime.score}/100'),
+                        ),
+                      Chip(
+                        label:
+                            Text('${anime.episodes ?? '?'} eps'),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 16),
@@ -817,54 +1116,75 @@ class _DetailScreenState extends State<DetailScreen> {
                     anime.description.isEmpty
                         ? 'Deskripsi belum tersedia.'
                         : anime.description,
-                    style: const TextStyle(height: 1.55),
+                    style: const TextStyle(
+                      height: 1.55,
+                    ),
                   ),
                   const SizedBox(height: 18),
                   const Text(
                     'Genre',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                   const SizedBox(height: 8),
                   Wrap(
                     spacing: 6,
                     runSpacing: 6,
                     children: anime.genres
-                        .map((genre) => Chip(label: Text(genre)))
+                        .map(
+                          (genre) => Chip(
+                            label: Text(genre),
+                          ),
+                        )
                         .toList(),
                   ),
                   const SizedBox(height: 22),
-                  DropdownButtonFormField<int>(
-                    initialValue: selectedEpisode,
-                    decoration: const InputDecoration(
-                      labelText: 'Episode',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: [
-                      for (var i = 1; i <= maxEpisode; i++)
-                        DropdownMenuItem(
-                          value: i,
-                          child: Text('Episode $i'),
+                  Text(
+                    'Episode',
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleMedium
+                        ?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 7,
+                    runSpacing: 7,
+                    children: [
+                      for (var i = 1; i <= count; i++)
+                        ChoiceChip(
+                          label: Text('$i'),
+                          selected: i == selected,
+                          onSelected: (_) {
+                            setState(() => episode = i);
+                          },
                         ),
                     ],
-                    onChanged: (value) {
-                      if (value != null) setState(() => episode = value);
-                    },
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 18),
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton.icon(
-                      onPressed: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'Player akan diaktifkan setelah server streaming berlisensi ditambahkan.',
-                            ),
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.play_arrow),
-                      label: Text('Tonton Episode $selectedEpisode'),
+                      onPressed: startWatching,
+                      icon: const Icon(
+                        Icons.play_arrow,
+                      ),
+                      label: Text(
+                        'Mulai Episode $selected',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  const Card(
+                    child: Padding(
+                      padding: EdgeInsets.all(14),
+                      child: Text(
+                        'Player video, subtitle, kualitas, dan download akan ditambahkan setelah server video berlisensi siap.',
+                      ),
                     ),
                   ),
                 ],
@@ -892,64 +1212,60 @@ class LibraryScreen extends StatefulWidget {
 }
 
 class _LibraryScreenState extends State<LibraryScreen> {
-  String tab = 'Favorit';
+  int tab = 0;
   bool loading = true;
-  Set<int> favoriteIds = {};
-  Map<int, double> historyMap = {};
   List<Anime> items = [];
 
   @override
   void initState() {
     super.initState();
-    reload();
+    load();
   }
 
-  Future<void> reload() async {
+  Future<void> load() async {
     setState(() => loading = true);
-    favoriteIds = await widget.store.favorites();
-    historyMap = await widget.store.history();
 
-    final ids = tab == 'Favorit' ? favoriteIds : historyMap.keys.toSet();
-    final result = <Anime>[];
-
-    for (final id in ids.take(24)) {
-      try {
-        result.add(await widget.api.detail(id));
-      } catch (_) {
-        // Skip unavailable entries.
-      }
-    }
+    final value = tab == 0
+        ? await widget.store.favorites()
+        : await widget.store.history();
 
     if (mounted) {
       setState(() {
-        items = result;
+        items = value;
         loading = false;
       });
     }
   }
 
-  Future<void> toggleFavorite(Anime anime) async {
-    await widget.store.toggleFavorite(anime.id);
-    await reload();
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Koleksi')),
+      appBar: AppBar(
+        title: const Text(
+          'Koleksi',
+          style: TextStyle(
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ),
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-            child: SegmentedButton<String>(
+            padding: const EdgeInsets.fromLTRB(
+              16,
+              8,
+              16,
+              10,
+            ),
+            child: SegmentedButton<int>(
               segments: const [
                 ButtonSegment(
-                  value: 'Favorit',
+                  value: 0,
                   label: Text('Favorit'),
                   icon: Icon(Icons.favorite),
                 ),
                 ButtonSegment(
-                  value: 'Histori',
+                  value: 1,
                   label: Text('Histori'),
                   icon: Icon(Icons.history),
                 ),
@@ -957,50 +1273,66 @@ class _LibraryScreenState extends State<LibraryScreen> {
               selected: {tab},
               onSelectionChanged: (value) {
                 setState(() => tab = value.first);
-                reload();
+                load();
               },
             ),
           ),
           Expanded(
             child: loading
-                ? const Center(child: CircularProgressIndicator())
+                ? const Center(
+                    child: CircularProgressIndicator(),
+                  )
                 : items.isEmpty
                     ? Center(
                         child: Text(
-                          tab == 'Favorit'
-                              ? 'Belum ada anime favorit.'
-                              : 'Belum ada histori tontonan.',
+                          tab == 0
+                              ? 'Belum ada favorit.'
+                              : 'Belum ada histori.',
                         ),
                       )
-                    : GridView.builder(
-                        padding: const EdgeInsets.all(16),
-                        itemCount: items.length,
-                        gridDelegate:
-                            const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
-                          mainAxisSpacing: 16,
-                          crossAxisSpacing: 12,
-                          childAspectRatio: .48,
-                        ),
-                        itemBuilder: (context, index) {
-                          final anime = items[index];
-                          return AnimeCard(
-                            anime: anime,
-                            favorite: favoriteIds.contains(anime.id),
-                            onFavorite: () => toggleFavorite(anime),
-                            onTap: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => DetailScreen(
-                                    api: widget.api,
-                                    store: widget.store,
-                                    anime: anime,
+                    : RefreshIndicator(
+                        onRefresh: load,
+                        child: GridView.builder(
+                          padding: const EdgeInsets.all(16),
+                          itemCount: items.length,
+                          gridDelegate:
+                              const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2,
+                            crossAxisSpacing: 12,
+                            mainAxisSpacing: 16,
+                            childAspectRatio: .49,
+                          ),
+                          itemBuilder: (context, index) {
+                            final anime = items[index];
+
+                            return AnimeCard(
+                              anime: anime,
+                              favorite: true,
+                              onTap: () {
+                                Navigator.of(context)
+                                    .push(
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        DetailScreen(
+                                      api: widget.api,
+                                      store: widget.store,
+                                      anime: anime,
+                                    ),
                                   ),
-                                ),
-                              );
-                            },
-                          );
-                        },
+                                );
+                              },
+                              onFavorite: tab == 0
+                                  ? () async {
+                                      await widget.store
+                                          .toggleFavorite(
+                                        anime,
+                                      );
+                                      load();
+                                    }
+                                  : null,
+                            );
+                          },
+                        ),
                       ),
           ),
         ],
@@ -1018,42 +1350,77 @@ class ScheduleScreen extends StatefulWidget {
   final AniListApi api;
 
   @override
-  State<ScheduleScreen> createState() => _ScheduleScreenState();
+  State<ScheduleScreen> createState() =>
+      _ScheduleScreenState();
 }
 
-class _ScheduleScreenState extends State<ScheduleScreen> {
-  late Future<List<Anime>> future = widget.api.home();
+class _ScheduleScreenState
+    extends State<ScheduleScreen> {
+  late Future<HomeData> future = widget.api.home();
 
-  String dateText(int? timestamp) {
-    if (timestamp == null) return 'Waktu belum tersedia';
-    final date = DateTime.fromMillisecondsSinceEpoch(timestamp * 1000).toLocal();
-    final dd = date.day.toString().padLeft(2, '0');
-    final mm = date.month.toString().padLeft(2, '0');
-    final hh = date.hour.toString().padLeft(2, '0');
-    final min = date.minute.toString().padLeft(2, '0');
-    return '$dd/$mm $hh:$min';
+  String date(int? timestamp) {
+    if (timestamp == null) {
+      return 'Waktu belum tersedia';
+    }
+
+    final dt =
+        DateTime.fromMillisecondsSinceEpoch(
+      timestamp * 1000,
+    ).toLocal();
+
+    final d = dt.day.toString().padLeft(2, '0');
+    final m = dt.month.toString().padLeft(2, '0');
+    final h = dt.hour.toString().padLeft(2, '0');
+    final min = dt.minute.toString().padLeft(2, '0');
+
+    return '$d/$m $h:$min';
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Jadwal Episode')),
-      body: FutureBuilder<List<Anime>>(
+      appBar: AppBar(
+        title: const Text(
+          'Jadwal Episode',
+          style: TextStyle(
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ),
+      body: FutureBuilder<HomeData>(
         future: future,
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(child: Text('Gagal memuat jadwal: ${snapshot.error}'));
+          if (snapshot.connectionState ==
+              ConnectionState.waiting) {
+            return const Center(
+              child: CircularProgressIndicator(),
+            );
           }
 
-          final list = (snapshot.data ?? const <Anime>[])
-              .where((anime) => anime.nextEpisode != null)
+          if (snapshot.hasError) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Text(
+                  'Gagal memuat jadwal: ${snapshot.error}',
+                ),
+              ),
+            );
+          }
+
+          final items = (snapshot.data?.airing ??
+                  const <Anime>[])
+              .where(
+                (anime) => anime.nextEpisode != null,
+              )
               .toList();
 
-          if (list.isEmpty) {
-            return const Center(child: Text('Belum ada jadwal tersedia.'));
+          if (items.isEmpty) {
+            return const Center(
+              child: Text(
+                'Belum ada jadwal tersedia.',
+              ),
+            );
           }
 
           return RefreshIndicator(
@@ -1064,38 +1431,47 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
             },
             child: ListView.separated(
               padding: const EdgeInsets.all(16),
-              itemCount: list.length,
-              separatorBuilder: (context, index) => const SizedBox(height: 10),
+              itemCount: items.length,
+              separatorBuilder: (context, index) =>
+                  const SizedBox(height: 10),
               itemBuilder: (context, index) {
-                final anime = list[index];
+                final anime = items[index];
+
                 return Card(
                   child: ListTile(
-                    contentPadding: const EdgeInsets.all(10),
+                    contentPadding:
+                        const EdgeInsets.all(10),
                     leading: ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
+                      borderRadius:
+                          BorderRadius.circular(10),
                       child: Image.network(
                         anime.cover,
-                        width: 55,
-                        height: 75,
+                        width: 58,
+                        height: 76,
                         fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) =>
-                            const SizedBox(
-                          width: 55,
-                          height: 75,
-                          child: ColoredBox(
-                            color: Color(0xFF22222A),
-                            child: Icon(Icons.broken_image),
-                          ),
-                        ),
+                        errorBuilder:
+                            (context, error, stackTrace) {
+                          return const SizedBox(
+                            width: 58,
+                            height: 76,
+                            child: ColoredBox(
+                              color: Color(0xFF20202A),
+                              child: Icon(
+                                Icons.broken_image,
+                              ),
+                            ),
+                          );
+                        },
                       ),
                     ),
                     title: Text(
                       anime.title,
                       maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                      overflow:
+                          TextOverflow.ellipsis,
                     ),
                     subtitle: Text(
-                      'Episode ${anime.nextEpisode}\n${dateText(anime.nextAiringAt)}',
+                      'Episode ${anime.nextEpisode}\n${date(anime.airingAt)}',
                     ),
                     isThreeLine: true,
                   ),
@@ -1115,32 +1491,46 @@ class ProfileScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Profil')),
+      appBar: AppBar(
+        title: const Text(
+          'Profil',
+          style: TextStyle(
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
-        children: [
+        children: const [
           Card(
             child: Padding(
-              padding: const EdgeInsets.all(18),
+              padding: EdgeInsets.all(20),
               child: Row(
                 children: [
-                  const CircleAvatar(
+                  CircleAvatar(
                     radius: 34,
-                    child: Text('A', style: TextStyle(fontSize: 24)),
+                    child: Text(
+                      'A',
+                      style: TextStyle(
+                        fontSize: 25,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
-                  const SizedBox(width: 16),
-                  const Expanded(
+                  SizedBox(width: 16),
+                  Expanded(
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                      crossAxisAlignment:
+                          CrossAxisAlignment.start,
                       children: [
                         Text(
                           'Animidesu User',
                           style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
+                            fontSize: 21,
+                            fontWeight: FontWeight.w900,
                           ),
                         ),
-                        SizedBox(height: 4),
+                        SizedBox(height: 5),
                         Text('Level 1 • 0 XP'),
                       ],
                     ),
@@ -1149,35 +1539,74 @@ class ProfileScreen extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(height: 12),
-          const Card(
+          SizedBox(height: 12),
+          Card(
             child: Column(
               children: [
                 ListTile(
-                  leading: Icon(Icons.favorite_outline),
+                  leading:
+                      Icon(Icons.favorite_outline),
                   title: Text('Favorit'),
-                  subtitle: Text('Koleksi anime tersimpan di perangkat'),
+                  subtitle: Text(
+                    'Koleksi anime yang disimpan',
+                  ),
                 ),
                 ListTile(
                   leading: Icon(Icons.history),
                   title: Text('Histori'),
-                  subtitle: Text('Progress tontonan tersimpan lokal'),
+                  subtitle: Text(
+                    'Riwayat tontonan',
+                  ),
                 ),
                 ListTile(
-                  leading: Icon(Icons.notifications_outlined),
+                  leading: Icon(
+                    Icons.notifications_outlined,
+                  ),
                   title: Text('Notifikasi'),
-                  subtitle: Text('Akan diaktifkan pada tahap backend'),
+                  subtitle: Text(
+                    'Akan ditambahkan bersama backend',
+                  ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 12),
-          const Card(
-            child: ListTile(
-              leading: Icon(Icons.info_outline),
-              title: Text('Tentang Animidesu 1.1'),
-              subtitle: Text(
-                'Metadata anime menggunakan AniList. Fitur streaming akan memakai sumber video yang Anda miliki atau berlisensi.',
+          SizedBox(height: 12),
+          Card(
+            child: Column(
+              children: [
+                ListTile(
+                  leading:
+                      Icon(Icons.palette_outlined),
+                  title: Text('Tema'),
+                  subtitle: Text(
+                    'Dark theme Animidesu',
+                  ),
+                ),
+                ListTile(
+                  leading: Icon(Icons.language),
+                  title: Text('Bahasa'),
+                  subtitle: Text('Indonesia'),
+                ),
+                ListTile(
+                  leading:
+                      Icon(Icons.download_outlined),
+                  title: Text('Download'),
+                  subtitle: Text(
+                    'Akan hadir bersama player',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: Text(
+                'Animidesu 1.2\n\n'
+                'Katalog memakai metadata AniList. '
+                'Video akan menggunakan sumber yang Anda '
+                'miliki atau mempunyai hak distribusi.',
               ),
             ),
           ),
