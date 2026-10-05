@@ -1,10 +1,16 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'auth/auth_gate.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
+  await GoogleSignIn.instance.initialize();
   runApp(const AnimidesuApp());
 }
 
@@ -321,7 +327,7 @@ class AnimidesuApp extends StatelessWidget {
         colorSchemeSeed: const Color(0xFF8B5CF6),
         scaffoldBackgroundColor: const Color(0xFF08080C),
       ),
-      home: const MainShell(),
+      home: const AuthGate(child: MainShell()),
     );
   }
 }
